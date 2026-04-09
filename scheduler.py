@@ -1,90 +1,77 @@
+
 import os
+import json
 from job_scraper import run_scraper
-from database import filter_new_jobs, get_all_users
-from mailer import send_email
+from database    import create_tables, filter_new_jobs, get_all_users
+from mailer      import send_jobs_email
 
 
-def main():
-    print("🚀 Scheduler started...")
+def run_daily_scan():
+    """
+    Main function — called by GitHub Actions every morning.
+    Loops through all registered users and sends new job alerts.
+    """
+    print("=" * 50)
+    print("🤖 Daily Job Scan Started")
+    print("=" * 50)
 
-    # Get sender credentials from environment (GitHub Secrets)
-    sender_email = os.environ.get("SENDER_EMAIL")
-    sender_password = os.environ.get("SENDER_PASSWORD")
+    # Make sure tables exist (important for first run)
+    create_tables()
 
-    if not sender_email or not sender_password:
-        print("❌ Missing email credentials in environment variables")
-        return
-
-    # Get all registered users
+    # Load all users who registered via the Streamlit app
     users = get_all_users()
 
     if not users:
-        print("⚠️ No users found in users.json")
+        print("⚠️  No users registered yet. Someone needs to sign up via the app first.")
         return
 
-    # Loop through each user
+    print(f"👥 Found {len(users)} registered user(s)\n")
+
     for user in users:
-        try:
-            email = user["email"]
-            keywords = user["keywords"]
+        email    = user["email"]
+        keywords = user["keywords"]
 
-            print(f"\n🔍 Processing user: {email}")
-            print(f"📌 Keywords: {keywords}")
+        print(f"🔍 Scanning jobs for: {email}")
+        print(f"   Keywords: {', '.join(keywords[:5])}")
 
-            # Step 1: Scrape jobs
-            jobs = run_scraper(keywords)
+        # Scrape jobs from Naukri and Indeed
+        all_jobs = run_scraper(keywords)
+        print(f"   Total jobs found: {len(all_jobs)}")
 
-            if not jobs:
-                print("⚠️ No jobs scraped")
-                continue
+        # Filter out jobs this user has already seen
+        new_jobs = filter_new_jobs(email, all_jobs)
+        print(f"   New jobs (not seen before): {len(new_jobs)}")
 
-            # Step 2: Filter new jobs (this ALSO saves to DB)
-            new_jobs = filter_new_jobs(email, jobs)
+        if not new_jobs:
+            print(f"   ✅ No new jobs for {email} today. Skipping email.\n")
+            continue
 
-            if not new_jobs:
-                print("✅ No new jobs found")
-                continue
+        # Get sender credentials from GitHub Secrets (set as env variables)
+        sender_email    = os.environ.get("SENDER_EMAIL")
+        sender_password = os.environ.get("SENDER_PASSWORD")
 
-            print(f"📨 Found {len(new_jobs)} new jobs")
+        if not sender_email or not sender_password:
+            print("   ❌ SENDER_EMAIL or SENDER_PASSWORD not set in GitHub Secrets!")
+            continue
 
-            # Step 3: Send email
-            send_email(
-                sender_email=sender_email,
-                sender_password=sender_password,
-                receiver_email=email,
-                jobs=new_jobs
-            )
+        # Send the email
+        sent = send_jobs_email(
+            to_email        = email,
+            jobs            = new_jobs,
+            keywords        = keywords,
+            sender_email    = sender_email,
+            sender_password = sender_password,
+        )
 
-            print("✅ Email sent successfully")
-
-        except Exception as e:
-            print(f"❌ Error processing user {user.get('email', 'unknown')}: {e}")
-
-
-if __name__ == "__main__":
-    main() seen_jobs]
-        
-        if new_jobs:
-            print(f"Found {len(new_jobs)} new jobs")
-            
-            # Send email with results
-            send_jobs_email(
-                to_email=os.getenv("RECIPIENT_EMAIL"),
-                jobs=new_jobs,
-                keywords=resume_skills,
-                sender_email=os.getenv("SENDER_EMAIL"),
-                sender_password=os.getenv("SENDER_PASSWORD")
-            )
-            
-            # Save jobs to database
-            save_jobs(new_jobs)
-            print("Job scan completed successfully")
+        if sent:
+            print(f"   📧 Email sent to {email} with {len(new_jobs)} new jobs!\n")
         else:
-            print("No new jobs found")
-            
-    except Exception as e:
-        print(f"Error during job scan: {e}", file=sys.stderr)
-        sys.exit(1)
+            print(f"   ❌ Failed to send email to {email}\n")
+
+    print("=" * 50)
+    print("✅ Daily scan complete!")
+    print("=" * 50)
+
 
 if __name__ == "__main__":
-    main()
+    run_daily_scan()
