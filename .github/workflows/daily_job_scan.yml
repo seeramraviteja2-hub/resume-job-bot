@@ -39,3 +39,4 @@ jobs:
           git add seen_jobs.db users.json
           git diff --staged --quiet || git commit -m "chore: update seen jobs db [skip ci]"
           git push
+          
