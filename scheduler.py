@@ -5,7 +5,7 @@ Daily job scan scheduler that scrapes jobs and emails results.
 
 import os
 import sys
-from job_scraper import scrape_jobs
+from job_scraper import run_scraper
 from resume_parser import parse_resume
 from mailer import send_email
 from database import save_jobs, get_seen_jobs
@@ -13,9 +13,13 @@ from database import save_jobs, get_seen_jobs
 def main():
     """Main scheduler function."""
     try:
-        # Scrape jobs
+        # Parse resume and extract keywords
+        print("Parsing resume...")
+        resume_skills = parse_resume()
+        
+        # Scrape jobs using resume keywords
         print("Starting job scrape...")
-        jobs = scrape_jobs()
+        jobs = run_scraper(resume_skills)
         
         # Get previously seen jobs to avoid duplicates
         seen_jobs = get_seen_jobs()
@@ -25,9 +29,6 @@ def main():
         
         if new_jobs:
             print(f"Found {len(new_jobs)} new jobs")
-            
-            # Parse resume and match jobs
-            resume_skills = parse_resume()
             
             # Send email with results
             send_email(new_jobs, resume_skills)
