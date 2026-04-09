@@ -7,7 +7,7 @@ import os
 import sys
 from job_scraper import run_scraper
 from resume_parser import parse_resume
-from mailer import send_email
+from mailer import send_jobs_email
 from database import save_jobs, get_seen_jobs
 
 def main():
@@ -31,7 +31,13 @@ def main():
             print(f"Found {len(new_jobs)} new jobs")
             
             # Send email with results
-            send_email(new_jobs, resume_skills)
+            send_jobs_email(
+                to_email=os.getenv("RECIPIENT_EMAIL"),
+                jobs=new_jobs,
+                keywords=resume_skills,
+                sender_email=os.getenv("SENDER_EMAIL"),
+                sender_password=os.getenv("SENDER_PASSWORD")
+            )
             
             # Save jobs to database
             save_jobs(new_jobs)
