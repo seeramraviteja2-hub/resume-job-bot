@@ -1,31 +1,68 @@
-#!/usr/bin/env python3
-"""
-Daily job scan scheduler that scrapes jobs and emails results.
-"""
-
 import os
-import sys
 from job_scraper import run_scraper
-from resume_parser import parse_resume
-from mailer import send_jobs_email
-from database import save_jobs, get_seen_jobs
+from database import filter_new_jobs, get_all_users
+from mailer import send_email
+
 
 def main():
-    """Main scheduler function."""
-    try:
-        # Parse resume and extract keywords
-        print("Parsing resume...")
-        resume_skills = parse_resume()
-        
-        # Scrape jobs using resume keywords
-        print("Starting job scrape...")
-        jobs = run_scraper(resume_skills)
-        
-        # Get previously seen jobs to avoid duplicates
-        seen_jobs = get_seen_jobs()
-        
-        # Filter for new jobs only
-        new_jobs = [job for job in jobs if job['id'] not in seen_jobs]
+    print("🚀 Scheduler started...")
+
+    # Get sender credentials from environment (GitHub Secrets)
+    sender_email = os.environ.get("SENDER_EMAIL")
+    sender_password = os.environ.get("SENDER_PASSWORD")
+
+    if not sender_email or not sender_password:
+        print("❌ Missing email credentials in environment variables")
+        return
+
+    # Get all registered users
+    users = get_all_users()
+
+    if not users:
+        print("⚠️ No users found in users.json")
+        return
+
+    # Loop through each user
+    for user in users:
+        try:
+            email = user["email"]
+            keywords = user["keywords"]
+
+            print(f"\n🔍 Processing user: {email}")
+            print(f"📌 Keywords: {keywords}")
+
+            # Step 1: Scrape jobs
+            jobs = run_scraper(keywords)
+
+            if not jobs:
+                print("⚠️ No jobs scraped")
+                continue
+
+            # Step 2: Filter new jobs (this ALSO saves to DB)
+            new_jobs = filter_new_jobs(email, jobs)
+
+            if not new_jobs:
+                print("✅ No new jobs found")
+                continue
+
+            print(f"📨 Found {len(new_jobs)} new jobs")
+
+            # Step 3: Send email
+            send_email(
+                sender_email=sender_email,
+                sender_password=sender_password,
+                receiver_email=email,
+                jobs=new_jobs
+            )
+
+            print("✅ Email sent successfully")
+
+        except Exception as e:
+            print(f"❌ Error processing user {user.get('email', 'unknown')}: {e}")
+
+
+if __name__ == "__main__":
+    main() seen_jobs]
         
         if new_jobs:
             print(f"Found {len(new_jobs)} new jobs")
