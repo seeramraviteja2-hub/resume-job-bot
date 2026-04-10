@@ -6,7 +6,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 MAX_JOBS_PER_KEYWORD = 5
-PAGE_TIMEOUT_MS = 15000
+PAGE_TIMEOUT_MS = 20000
 
 
 async def scrape_naukri(page, keyword):
@@ -14,16 +14,47 @@ async def scrape_naukri(page, keyword):
     search_url = f"https://www.naukri.com/{keyword.replace(' ', '-')}-jobs"
     try:
         await page.goto(search_url, timeout=PAGE_TIMEOUT_MS)
-        await page.wait_for_timeout(2000)
-        job_cards = await page.query_selector_all("article.jobTuple")
+        await page.wait_for_timeout(3000)
+
+        # Try multiple possible selectors Naukri uses
+        selectors = [
+            "article.jobTuple",
+            ".jobTuple",
+            ".job-container",
+            "[class*='jobTuple']",
+            "[class*='job-card']",
+            ".cust-job-tuple",
+        ]
+
+        job_cards = []
+        for selector in selectors:
+            job_cards = await page.query_selector_all(selector)
+            if job_cards:
+                print(f"[Naukri] Found cards with selector: {selector}")
+                break
+
         for card in job_cards[:MAX_JOBS_PER_KEYWORD]:
             try:
-                title_el = await card.query_selector("a.title")
-                company_el = await card.query_selector("a.subTitle")
+                # Try multiple title selectors
+                title_el = (
+                    await card.query_selector("a.title") or
+                    await card.query_selector(".title") or
+                    await card.query_selector("a[class*='title']") or
+                    await card.query_selector("h2 a") or
+                    await card.query_selector("a")
+                )
+                company_el = (
+                    await card.query_selector("a.subTitle") or
+                    await card.query_selector(".subTitle") or
+                    await card.query_selector("[class*='company']") or
+                    await card.query_selector(".comp-name")
+                )
+
                 title = await title_el.inner_text() if title_el else "N/A"
                 company = await company_el.inner_text() if company_el else "N/A"
                 url = await title_el.get_attribute("href") if title_el else ""
-                if url:
+
+                if url and title != "N/A":
                     jobs.append({
                         "title": title.strip(),
                         "company": company.strip(),
@@ -32,8 +63,11 @@ async def scrape_naukri(page, keyword):
                     })
             except Exception:
                 continue
+
     except Exception as e:
         print(f"[Naukri] Failed for keyword '{keyword}': {e}")
+
+    print(f"[Naukri] Found {len(jobs)} jobs for '{keyword}'")
     return jobs
 
 
@@ -43,17 +77,53 @@ async def scrape_indeed(page, keyword):
     search_url = f"https://in.indeed.com/jobs?q={query}&sort=date"
     try:
         await page.goto(search_url, timeout=PAGE_TIMEOUT_MS)
-        await page.wait_for_timeout(2000)
-        job_cards = await page.query_selector_all("div.job_seen_beacon")
+        await page.wait_for_timeout(3000)
+
+        # Try multiple possible selectors Indeed uses
+        selectors = [
+            "div.job_seen_beacon",
+            ".job_seen_beacon",
+            ".jobCard",
+            "[class*='job_seen']",
+            "[class*='jobCard']",
+            ".tapItem",
+            "li.css-5lfssm",
+        ]
+
+        job_cards = []
+        for selector in selectors:
+            job_cards = await page.query_selector_all(selector)
+            if job_cards:
+                print(f"[Indeed] Found cards with selector: {selector}")
+                break
+
         for card in job_cards[:MAX_JOBS_PER_KEYWORD]:
             try:
-                title_el = await card.query_selector("h2.jobTitle span")
-                company_el = await card.query_selector("span.companyName")
-                link_el = await card.query_selector("h2.jobTitle a")
+                title_el = (
+                    await card.query_selector("h2.jobTitle span") or
+                    await card.query_selector(".jobTitle span") or
+                    await card.query_selector("h2 span") or
+                    await card.query_selector("[class*='jobTitle'] span") or
+                    await card.query_selector("h2")
+                )
+                company_el = (
+                    await card.query_selector("span.companyName") or
+                    await card.query_selector(".companyName") or
+                    await card.query_selector("[class*='companyName']") or
+                    await card.query_selector("[data-testid='company-name']")
+                )
+                link_el = (
+                    await card.query_selector("h2.jobTitle a") or
+                    await card.query_selector(".jobTitle a") or
+                    await card.query_selector("h2 a") or
+                    await card.query_selector("a[id^='job_']")
+                )
+
                 title = await title_el.inner_text() if title_el else "N/A"
                 company = await company_el.inner_text() if company_el else "N/A"
                 href = await link_el.get_attribute("href") if link_el else ""
-                if href:
+
+                if href and title != "N/A":
                     full_url = f"https://in.indeed.com{href}" if href.startswith("/") else href
                     jobs.append({
                         "title": title.strip(),
@@ -63,8 +133,11 @@ async def scrape_indeed(page, keyword):
                     })
             except Exception:
                 continue
+
     except Exception as e:
         print(f"[Indeed] Failed for keyword '{keyword}': {e}")
+
+    print(f"[Indeed] Found {len(jobs)} jobs for '{keyword}'")
     return jobs
 
 
@@ -102,7 +175,7 @@ async def scrape_jobs_for_keywords(keywords):
             indeed_jobs = await scrape_indeed(page, keyword)
             all_jobs.extend(naukri_jobs)
             all_jobs.extend(indeed_jobs)
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await browser.close()
 
